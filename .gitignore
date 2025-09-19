@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# ChromaDB local persistence
+chroma_db/
+chroma_db/*.sqlite3*
+chroma_db/*.db
+db.sqlite3
+
 # Distribution / packaging
 .Python
 build/

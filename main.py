@@ -39,8 +39,3 @@ async def root():
 # Include routes
 app.include_router(api_router)
 
-if __name__ == "__main__":
-    import uvicorn
-
-    port = settings.PORT  # same as Express `process.env.PORT || 4000`
-    uvicorn.run(app, host="0.0.0.0", port=port)

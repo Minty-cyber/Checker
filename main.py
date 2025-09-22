@@ -28,9 +28,10 @@ async def root():
     return {"message": "Hello World!"}
 
 # Healthcheck route (needed for Leapcell monitoring)
-@app.get("/healthcheck")
+@app.get("/kaithheathcheck")
 async def healthcheck():
     return {"status": "ok"}
+
 
 # Include API routes
 app.include_router(api_router)

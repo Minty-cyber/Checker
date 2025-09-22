@@ -1,41 +1,30 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from route.api import router as api_router, initialize_processor
+from route.api import router as api_router
 from contextlib import asynccontextmanager
-import os
-from core.config import settings
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Initialize the document processor at startup
-    await initialize_processor()
-    yield
-    # Cleanup (if needed) at shutdown
-    pass
-
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     await initialize_processor()
+#     yield
 
 app = FastAPI(
     title="Merve API",
     description="API for document processing and RAG-based chat",
     version="0.1.0",
-    lifespan=lifespan,
+   
 )
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Root route (like Express `app.get('/')`)
 @app.get("/")
 async def root():
     return {"message": "Hello World!"}
 
-
-# Include routes
 app.include_router(api_router)
-

@@ -1,141 +1,122 @@
-from fastapi import APIRouter, HTTPException, Depends, FastAPI
-from typing import List, Optional
-from functools import lru_cache
-from pathlib import Path
-import os
-from datetime import datetime
+# app/main.py
+import time
+from fastapi import FastAPI, APIRouter
+from pydantic import BaseModel
+from pinecone import Pinecone
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
+from core.config import settings
 
-from documents.schemas import DocProcessRequest, ProcessResult
-from documents.utils import DocProcessor
-from agent import agent_responder
-from pydantic import BaseModel, Field
+# === Config ===
+PINECONE_API_KEY = settings.PINECONE_API_KEY
+GROQ_API_KEY = settings.GROQ_API_KEY
+INDEX_NAME = "mtn-ethics-index"
 
-# ---------------- Paths ----------------
-BASE_DIR = Path(__file__).resolve().parent.parent  # go up one level from "route"
-DOCS_PATH = BASE_DIR / "documents/mtn_code_of_ethics.pdf"
+# === Init ===
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index = pc.Index(INDEX_NAME)
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant")
+
+SYSTEM_PROMPT = """
+You are a document assistant called MERVE.
+Always answer based strictly on the provided context in your knowledge base (MTN Code of Ethics).
+- You can answer user pleasantries and small greetings.
+- If the user mentions a page or range of pages, use the `metadata.page` values of the retrieved chunks.
+- If no page is mentioned, answer using the most relevant chunks.
+- Always provide clear, concise answers.
+- Never make up information. If unsure, say "I could not find that in the document."
+"""
+
+prompt_template = ChatPromptTemplate.from_messages([
+    ("system", SYSTEM_PROMPT),
+    ("human", "{question}\n\nContext:\n{context}")
+])
 
 router = APIRouter()
 
-# Global processor instance
-_processor: DocProcessor | None = None
+class QueryRequest(BaseModel):
+    question: str
+    top_k: int = 10
+
+class QueryResponse(BaseModel):
+    question: str
+    answer: str
+    latency: float
+    sources: list
 
 
-@lru_cache
-def get_processor() -> DocProcessor:
-    """Get or create the DocProcessor instance"""
-    global _processor
-    if _processor is None:
-        raise RuntimeError("DocProcessor not initialized")
-    return _processor
-
-
-async def initialize_processor():
-    """Initialize the global processor instance and process PDF if needed"""
-    global _processor
-    if _processor is None:
-        _processor = DocProcessor()
-        print("✅ Document Processor initialized successfully")
-
-        try:
-            # --- Check collection size ---
-            collection_data = _processor.collection.get()
-            count = len(collection_data["ids"])
-            if count == 0:
-                print("⚠️ Collection is empty — processing documents...")
-                if DOCS_PATH.exists():
-                    request = DocProcessRequest(
-                        docs_path=str(DOCS_PATH),
-                        chunk_size=1000,
-                        chunk_overlap=200,
-                    )
-                    result = await _processor.process_docs(request)
-                    print(f"✅ Processing result: {result}")
-                else:
-                    print(f"❌ PDF file not found: {DOCS_PATH}")
-            else:
-                print(f"✅ Collection already has {count} docs — skipping processing")
-        except Exception as e:
-            print(f"❌ Failed to check or process collection: {e}")
-
-
-# ---- Pydantic Models ----
-class AgentQuery(BaseModel):
-    query: str = Field(..., description="The question to ask the agent")
-    thread_id: Optional[str] = Field(
-        "api-thread", description="Thread ID for conversation continuity"
-    )
-
-
-class Message(BaseModel):
-    content: str
-
-
-class AgentResponse(BaseModel):
-    status: str = Field("success")
-    message: str = Field("", description="The response message")
-    sources: List[str] = Field(
-        default_factory=list, description="Source documents used for the response"
-    )
-    query: str = Field(..., description="Original query from the user")
-    timestamp: datetime = Field(default_factory=datetime.now)
-    route: str = Field("unknown")
-    messages: List[Message]
-
-
-# ---- FastAPI App ----
-app = FastAPI()
-
-
-@app.on_event("startup")
-async def startup_event():
-    await initialize_processor()
-
-
-@router.post("/chat", response_model=AgentResponse)
-async def agent_chat(query_data: AgentQuery):
+# --- Page detection using LLM ---
+def detect_page(user_query: str) -> int | None:
+    """Detect if a query refers to a specific page number using the LLM."""
+    page_prompt = f"""
+    Extract the page number if the query refers to a specific page.
+    Query: "{user_query}"
+    Answer with ONLY the page number (integer). If no page is mentioned, answer 'None'.
+    """
+    response = llm.invoke([{"role": "user", "content": page_prompt}])
     try:
-        # Unpack query
-        query = query_data.query
-        print(query)
-
-        # Build config
-        config = {"configurable": {"thread_id": query_data.thread_id}}
-        result = agent_responder(query, config)
-
-        # Extract latest message
-        latest_message = result["messages"][-1] if result.get("messages") else None
-        message_content = latest_message["content"] if latest_message else ""
-        result["message"] = message_content
-
-        # Ensure sources only included for rag
-        if result.get("route") != "rag":
-            result["sources"] = []
-
-        # Add timestamp
-        result["timestamp"] = datetime.now()
-
-        # Validate and return using Pydantic model
-        return AgentResponse(**result)
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "status": "error",
-                "message": str(e),
-                "sources": [],
-                "query": query_data.query,
-                "timestamp": datetime.now(),
-                "route": "error",
-                "messages": [],
-            },
-        )
+        content = response.content.strip()
+        if content.lower() == "none":
+            return None
+        return int(content)
+    except:
+        return None
 
 
-@app.get("/agent/health")
-async def agent_health():
-    return {
-        "status": "healthy",
-        "service": "LangGraph Agent API",
-        "timestamp": datetime.now(),
+# --- Pinecone retrieval with optional page filter ---
+def retrieve_chunks(query: str, top_k: int = 10, page: int | None = None):
+    query_vector = embeddings.embed_query(query)
+
+    query_params = {
+        "vector": query_vector,
+        "top_k": top_k,
+        "include_metadata": True,
     }
+
+    if page is not None:
+        query_params["filter"] = {"page": {"$eq": page}}
+
+    results = index.query(**query_params)
+    return results["matches"]
+
+
+# --- Main RAG pipeline ---
+def query_rag(user_query: str, top_k: int = 10):
+    start = time.time()
+
+    page = detect_page(user_query)
+    matches = retrieve_chunks(user_query, top_k=top_k, page=page)
+
+    context = ""
+    supporting_chunks = []
+    for m in matches:
+        page_num = m["metadata"].get("page")
+        text = m["metadata"].get("text")
+        context += f"\n[Page {page_num}] {text}\n"
+        supporting_chunks.append({
+            "page": page_num,
+            "text": text[:300] + "..." if len(text) > 300 else text,
+            "score": m.get("score")
+        })
+
+    messages = prompt_template.format_messages(
+        question=user_query,
+        context=context
+    )
+    response = llm.invoke(messages)
+
+    latency = round(time.time() - start, 2)
+
+    return {
+        "question": user_query,
+        "answer": response.content,
+        "latency": latency,
+        "sources": supporting_chunks
+    }
+
+
+@router.post("/query", response_model=QueryResponse)
+async def query_api(request: QueryRequest):
+    return query_rag(request.question, top_k=request.top_k)

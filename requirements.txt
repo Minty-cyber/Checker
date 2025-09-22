@@ -17,3 +17,4 @@ pydantic-ai-slim[groq]>=1.0.1
 pydantic-settings>=2.10.1
 sentence-transformers>=5.1.0
 spacy>=3.8.7
+pinecone==7.3.0

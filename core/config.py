@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str
     PINECONE_API_KEY: str
     
-    COHERE_API_KEY: str
+    
     
     REDIS_HOST: str
     REDIS_PORT: int = 16767

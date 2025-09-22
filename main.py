@@ -37,19 +37,19 @@ async def healthcheck():
 # Include API routes
 app.include_router(api_router)
 
-# Server binding configuration
-if __name__ == "__main__":
-    import uvicorn
+# # Server binding configuration
+# if __name__ == "__main__":
+#     import uvicorn
     
-    # Get port from environment variable, default to 8000
-    port = settings.PORT
+#     # Get port from environment variable, default to 8000
+#     port = settings.PORT
     
-    print(f"Starting server on 0.0.0.0:{port}")
+#     print(f"Starting server on 0.0.0.0:{port}")
     
-    uvicorn.run(
-        "main:app",  # Change this to match your filename if different
-        host="0.0.0.0",
-        port=port,
-        reload=False,  # Set to True only for development
-        log_level="info"
-    )
+#     uvicorn.run(
+#         "main:app",  # Change this to match your filename if different
+#         host="0.0.0.0",
+#         port=port,
+#         reload=False,  # Set to True only for development
+#         log_level="info"
+#     )

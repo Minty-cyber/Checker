@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = secrets.token_urlsafe(32)
     DEBUG: bool
     
-    PORT: int
+  
     # ACCESS_TOKEN_EXPIRATION: int = 60 * 24 * 7
     # ENVIRONMENT: Literal["local", "staging", "production"] = "local"
     PROJECT_NAME: str = 'Merve'

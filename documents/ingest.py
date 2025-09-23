@@ -25,7 +25,7 @@ index = pc.Index(INDEX_NAME)
 # ✅ Use SentenceTransformer for embeddings
 embeddings = CohereEmbeddings(
     cohere_api_key=settings.COHERE_API_KEY,
-    model="embed-english-v3.0"  # or "embed-multilingual-v3.0"
+    model="embed-english-light-v3.0"  # or "embed-multilingual-v3.0"
 )
 
 def ingest_pdf():

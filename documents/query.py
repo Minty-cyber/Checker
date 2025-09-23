@@ -19,7 +19,7 @@ index = pc.Index(INDEX_NAME)
 # === Embeddings ===
 embeddings = CohereEmbeddings(
     cohere_api_key=settings.COHERE_API_KEY,  # or set COHERE_API_KEY env var
-    model="embed-english-v3.0"  # or "embed-multilingual-v3.0"
+    model="embed-english-light-v3.0"  # or "embed-multilingual-v3.0"
 )
 
 # === LLM (Groq here, but you can swap with OpenAI) ===

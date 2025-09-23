@@ -19,7 +19,7 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(INDEX_NAME)
 embeddings = CohereEmbeddings(
     cohere_api_key=settings.COHERE_API_KEY,  # or set COHERE_API_KEY env var
-    model="embed-english-v3.0"  # or "embed-multilingual-v3.0"
+    model="embed-english-light-v3.0"  # or "embed-multilingual-v3.0"
 )
 llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant")
 

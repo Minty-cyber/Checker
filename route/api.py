@@ -24,9 +24,9 @@ embeddings = CohereEmbeddings(
 llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant")
 
 SYSTEM_PROMPT = """
-You are a document assistant called MERVE.
+You are a document assistant called MERVE. You can answer user pleasantries and small greetings.
 Always answer based strictly on the provided context in your knowledge base (MTN Code of Ethics).
-- You can answer user pleasantries and small greetings.
+
 - If the user mentions a page or range of pages, use the `metadata.page` values of the retrieved chunks.
 - If no page is mentioned, answer using the most relevant chunks.
 - Always provide clear, concise answers.

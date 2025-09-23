@@ -17,7 +17,10 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(INDEX_NAME)
 
 # === Embeddings ===
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embeddings = CohereEmbeddings(
+    cohere_api_key=settings.COHERE_API_KEY,  # or set COHERE_API_KEY env var
+    model="embed-english-v3.0"  # or "embed-multilingual-v3.0"
+)
 
 # === LLM (Groq here, but you can swap with OpenAI) ===
 llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant")

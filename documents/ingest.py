@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
 from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain_cohere.embeddings import CohereEmbeddings
 from .test import extract_pdf_with_metadata, DOCS_PATH
 from core.config import settings
 INDEX_NAME = "mtn-ethics-index"
@@ -22,7 +23,10 @@ if INDEX_NAME not in [idx["name"] for idx in pc.list_indexes()]:
 index = pc.Index(INDEX_NAME)
 
 # ✅ Use SentenceTransformer for embeddings
-embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+embeddings = CohereEmbeddings(
+    cohere_api_key=settings.COHERE_API_KEY,
+    model="embed-english-v3.0"  # or "embed-multilingual-v3.0"
+)
 
 def ingest_pdf():
     chunks = extract_pdf_with_metadata(DOCS_PATH)

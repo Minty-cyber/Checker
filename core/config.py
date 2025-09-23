@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
     DEBUG: bool
-    
+    COHERE_API_KEY: str
   
     # ACCESS_TOKEN_EXPIRATION: int = 60 * 24 * 7
     # ENVIRONMENT: Literal["local", "staging", "production"] = "local"

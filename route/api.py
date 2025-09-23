@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from pinecone import Pinecone
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import ChatPromptTemplate
+from langchain_cohere.embeddings import CohereEmbeddings
 from langchain_groq import ChatGroq
 from core.config import settings
 
@@ -16,7 +17,10 @@ INDEX_NAME = "mtn-ethics-index"
 # === Init ===
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(INDEX_NAME)
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embeddings = CohereEmbeddings(
+    cohere_api_key=settings.COHERE_API_KEY,  # or set COHERE_API_KEY env var
+    model="embed-english-v3.0"  # or "embed-multilingual-v3.0"
+)
 llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant")
 
 SYSTEM_PROMPT = """

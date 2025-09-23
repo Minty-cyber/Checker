@@ -5,7 +5,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 BASE_DIR = Path(__file__).resolve().parent.parent
 DOCS_PATH = BASE_DIR / "documents" / "mtn_code_of_ethics.pdf"
 
-def extract_pdf_with_metadata(pdf_path: Path, chunk_size=800, chunk_overlap=100):
+def extract_pdf_with_metadata(pdf_path: Path, chunk_size=1000, chunk_overlap=200):
     """
     Extracts page-aware chunks from a PDF using PyMuPDF.
     Each chunk has page number, unique chunk_id, and source filename.

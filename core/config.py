@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = secrets.token_urlsafe(32)
     DEBUG: bool
     COHERE_API_KEY: str
+    ELEVENLABS_API_KEY: str
   
     # ACCESS_TOKEN_EXPIRATION: int = 60 * 24 * 7
     # ENVIRONMENT: Literal["local", "staging", "production"] = "local"

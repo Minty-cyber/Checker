@@ -50,7 +50,7 @@ class QueryResponse(BaseModel):
     question: str
     answer: str
     latency: float
-    sources: list
+    # sources: list
 
 
 # --- Page detection using LLM ---
@@ -118,7 +118,7 @@ def query_rag(user_query: str, top_k: int = 3):
         "question": user_query,
         "answer": response.content,
         "latency": latency,
-        "sources": supporting_chunks
+        # "sources": supporting_chunks
     }
 
 

@@ -97,7 +97,7 @@ def detect_page(user_query: str) -> int | None:
     except:
         return None
 
-def retrieve_chunks(query: str, top_k: int = 8, similarity_threshold: float = 0.75, page: int | None = None):
+def retrieve_chunks(query: str, top_k: int = 8, similarity_threshold: float = 0.35, page: int | None = None):
     query_vector = embeddings.embed_query(query)
 
     query_params = {
@@ -110,9 +110,17 @@ def retrieve_chunks(query: str, top_k: int = 8, similarity_threshold: float = 0.
         query_params["filter"] = {"page": {"$eq": page}}
 
     results = index.query(**query_params)
-    return results["matches"]
-        
-        
+
+    if page is not None:
+        # For explicit page queries, return all matches (ignore threshold)
+        return results["matches"]
+
+    # Otherwise, apply similarity filtering
+    return [
+        m for m in results["matches"]
+        if m.get("score", 0) >= similarity_threshold
+    ]
+   
         
 def check_relevance(user_query: str, debug: bool = False) -> bool:
     """Use LLM to check if query is HR-=related."""
@@ -125,28 +133,18 @@ def check_relevance(user_query: str, debug: bool = False) -> bool:
     
     return relevance_result == "RELEVANT"
 
-def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.75, debug: bool = False):
-    """RAG system with relevance + page detection + retrieval."""
+def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.35, debug: bool = False):
+    """RAG system with page detection + retrieval (no relevance prompt)."""
     
     if debug:
         print(f"🔍 Processing query: '{user_query}'")
     
-    # 1. Check if query is HR-related
-    if not check_relevance(user_query, debug=debug):
-        if debug:
-            print("❌ Query deemed NOT RELEVANT")
-        return {
-            "question": user_query,
-            "answer": "Kindly ask only questions pertaining to HR.",
-            "sources": []
-        }
-    
-    # 2. Detect page (only for relevant queries)
+    # 1. Detect page (optional)
     requested_page = detect_page(user_query)
     if debug and requested_page:
         print(f"🔍 Detected page request: {requested_page}")
     
-    # 3. Retrieve chunks with similarity filtering + page filter
+    # 2. Retrieve chunks
     relevant_chunks = retrieve_chunks(
         user_query, 
         top_k=top_k, 
@@ -159,7 +157,7 @@ def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.7
         if relevant_chunks:
             print(f"🔍 Top similarity score: {relevant_chunks[0].get('score', 0):.4f}")
     
-    # 4. Handle no results case
+    # 3. Handle no results
     if not relevant_chunks:
         if requested_page is not None:
             return {
@@ -170,11 +168,11 @@ def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.7
         else:
             return {
                 "question": user_query,
-                "answer": "Kindly ask only questions pertaining to HR.",
+                "answer": "Kindly ask questions pertaining to only HR",
                 "sources": []
             }
     
-    # 5. Build context
+    # 4. Build context
     context = ""
     supporting_chunks = []
     for m in relevant_chunks:
@@ -187,7 +185,7 @@ def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.7
             "score": m.get("score")
         })
     
-    # 6. Answer with context
+    # 5. Answer with context
     messages = ANSWER_PROMPT.format_messages(
         question=user_query,
         context=context
@@ -200,10 +198,9 @@ def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.7
         "sources": supporting_chunks
     }
 
-
 if __name__ == "__main__":
     queries = [
-        "What is on page 11 of the MTN code of Ethics?",
+        "What is on page 11?",
         "Help me plan for a wedding",
         "What is the best recipe for pizza?",
         "What does the code say about conflict of interest?", 

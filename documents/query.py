@@ -1,12 +1,10 @@
 import os
 from dotenv import load_dotenv
 from pinecone import Pinecone
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_cohere.embeddings import CohereEmbeddings
 from langchain.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq  # or OpenAI if you prefer
+from langchain_groq import ChatGroq
 from core.config import settings
-
-
 
 PINECONE_API_KEY = settings.PINECONE_API_KEY
 GROQ_API_KEY = settings.GROQ_API_KEY
@@ -18,52 +16,168 @@ index = pc.Index(INDEX_NAME)
 
 # === Embeddings ===
 embeddings = CohereEmbeddings(
-    cohere_api_key=settings.COHERE_API_KEY,  # or set COHERE_API_KEY env var
-    model="embed-english-light-v3.0"  # or "embed-multilingual-v3.0"
+    cohere_api_key=settings.COHERE_API_KEY,
+    model="embed-english-light-v3.0"
 )
 
-# === LLM (Groq here, but you can swap with OpenAI) ===
+# === LLM ===
 llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant")
 
-# === Prompt ===
-SYSTEM_PROMPT = """
-You are AskHR, an assistant that answers questions strictly using the MTN Code of Ethics.
+# === Relevance Check Prompt ===
+RELEVANCE_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are a strict relevance checker for an HR assistant that ONLY answers questions about MTN's Code of Ethics and workplace policies.
+
+Respond with ONLY "RELEVANT" or "NOT_RELEVANT".
+
+RELEVANT questions MUST be about:
+- MTN Code of Ethics specifically
+- Workplace conduct and behavior policies
+- Employee disciplinary procedures
+- Business ethics and compliance at work
+- Conflict of interest policies
+- Gift and entertainment policies in business context
+- Harassment, discrimination, or workplace violations
+- Employee rights and responsibilities at MTN
+- Company compliance and regulatory matters
+
+NOT_RELEVANT questions include:
+- Personal life events (weddings, parties, celebrations)
+- Personal advice or planning (even if mentioning gifts)
+- General knowledge or how-to questions
+- Technical support, travel, cooking, entertainment
+- Personal finance, shopping, recipes
+- Any question about personal matters outside of work
+
+Key rule: If the question is about personal life or personal events (like "help me prepare for a wedding"), it is NOT_RELEVANT even if it mentions business concepts like gifts.
+
+Examples:
+- "What gifts can I accept from clients?" → RELEVANT
+- "Help me prepare for a wedding" → NOT_RELEVANT  
+- "What are MTN's gift policies?" → RELEVANT
+- "What gifts should I give at my wedding?" → NOT_RELEVANT"""),
+    ("human", "Question: {question}")
+])
+
+# === Main Answer Prompt (with context) ===
+ANSWER_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are AskHR, an assistant that answers questions strictly using the MTN Code of Ethics.
 
 Rules:
-- Always answer based strictly on the provided context.
-- If the user mentions a page or range of pages, cite the page numbers from the context in square brackets. Example: [Page 12].
-- If no relevant context exists for the question (unrelated to HR or not found in the Code of Ethics), reply strictly:
-  "Kindly ask only questions pertaining to HR."
-- Do not hallucinate, do not make up sources.
-- Only include citations (page numbers) when the context is relevant and used in your answer.
-- Never prepend answers with phrases like "based on the provided context".
+- Answer based strictly on the provided context.
+- Cite page numbers from the context in square brackets. Example: [Page 12].
 - Keep answers clear and concise.
-"""
-
-
-prompt_template = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
+- Never make up information not in the context."""),
     ("human", "{question}\n\nContext:\n{context}")
 ])
 
-def retrieve_chunks(query: str, top_k: int = 8):
-    """Retrieve top_k relevant chunks from Pinecone."""
-    query_vector = embeddings.embed_query(query)
-    results = index.query(
-        vector=query_vector,
-        top_k=top_k,
-        include_metadata=True
-    )
-    return results["matches"]
+# === No Context Answer Prompt ===
+NO_CONTEXT_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are AskHR, an assistant for MTN employees. 
 
-def query_rag(user_query: str, top_k: int = 8):
-    # 1. Retrieve supporting chunks
-    matches = retrieve_chunks(user_query, top_k=top_k)
+When no relevant context from the MTN Code of Ethics is available for a question, respond with EXACTLY:
+"Kindly ask only questions pertaining to HR."
+
+Do not provide any other response or explanation."""),
+    ("human", "{question}")
+])
+
+def detect_page(user_query: str) -> int | None:
+    """Extract page number if the query refers to a specific page."""
+    page_prompt = f"""
+    Extract the page number if the query refers to a specific page.
+    Query: "{user_query}"
+    Answer with ONLY the page number (integer). If no page is mentioned, answer 'None'.
+    """
+    response = llm.invoke([{"role": "user", "content": page_prompt}])
+    try:
+        content = response.content.strip()
+        if content.lower() == "none":
+            return None
+        return int(content)
+    except:
+        return None
+
+def retrieve_chunks(query: str, top_k: int = 8, similarity_threshold: float = 0.75, page: int | None = None):
+    query_vector = embeddings.embed_query(query)
+
+    query_params = {
+        "vector": query_vector,
+        "top_k": top_k,
+        "include_metadata": True,
+    }
+
+    if page is not None:
+        query_params["filter"] = {"page": {"$eq": page}}
+
+    results = index.query(**query_params)
+    return results["matches"]
+        
+        
+        
+def check_relevance(user_query: str, debug: bool = False) -> bool:
+    """Use LLM to check if query is HR-=related."""
+    messages = RELEVANCE_PROMPT.format_messages(question=user_query)
+    response = llm.invoke(messages)
+    relevance_result = response.content.strip().upper()
     
-    # 2. Build context
+    if debug:
+        print(f"🔍 Relevance check for '{user_query}': {relevance_result}")
+    
+    return relevance_result == "RELEVANT"
+
+def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.75, debug: bool = False):
+    """RAG system with relevance + page detection + retrieval."""
+    
+    if debug:
+        print(f"🔍 Processing query: '{user_query}'")
+    
+    # 1. Check if query is HR-related
+    if not check_relevance(user_query, debug=debug):
+        if debug:
+            print("❌ Query deemed NOT RELEVANT")
+        return {
+            "question": user_query,
+            "answer": "Kindly ask only questions pertaining to HR.",
+            "sources": []
+        }
+    
+    # 2. Detect page (only for relevant queries)
+    requested_page = detect_page(user_query)
+    if debug and requested_page:
+        print(f"🔍 Detected page request: {requested_page}")
+    
+    # 3. Retrieve chunks with similarity filtering + page filter
+    relevant_chunks = retrieve_chunks(
+        user_query, 
+        top_k=top_k, 
+        similarity_threshold=similarity_threshold, 
+        page=requested_page
+    )
+    
+    if debug:
+        print(f"🔍 Found {len(relevant_chunks)} chunks above threshold {similarity_threshold}")
+        if relevant_chunks:
+            print(f"🔍 Top similarity score: {relevant_chunks[0].get('score', 0):.4f}")
+    
+    # 4. Handle no results case
+    if not relevant_chunks:
+        if requested_page is not None:
+            return {
+                "question": user_query,
+                "answer": f"No content was found for page {requested_page} of the MTN Code of Ethics.",
+                "sources": []
+            }
+        else:
+            return {
+                "question": user_query,
+                "answer": "Kindly ask only questions pertaining to HR.",
+                "sources": []
+            }
+    
+    # 5. Build context
     context = ""
     supporting_chunks = []
-    for m in matches:
+    for m in relevant_chunks:
         page = m["metadata"].get("page")
         text = m["metadata"].get("text")
         context += f"\n[Page {page}] {text}\n"
@@ -73,37 +187,41 @@ def query_rag(user_query: str, top_k: int = 8):
             "score": m.get("score")
         })
     
-    # 3. Build prompt
-    messages = prompt_template.format_messages(
+    # 6. Answer with context
+    messages = ANSWER_PROMPT.format_messages(
         question=user_query,
         context=context
     )
-    
-    # 4. Get final answer from LLM
     response = llm.invoke(messages)
     
-    # 5. Return both answer + citations
     return {
         "question": user_query,
         "answer": response.content,
-        # "sources": supporting_chunks
+        "sources": supporting_chunks
     }
+
 
 if __name__ == "__main__":
     queries = [
-        # "What is on page 2?",
-        # "Summarise page 4 for me",
-        # "Summarise page 1 to 3",
-        # "What is the MTN code of Ethics about?",
-        # "What does the code say about conflict of interest?",
-        "Is there any email in the document in your knowledge base?"
+        "What is on page 11 of the MTN code of Ethics?",
+        "Help me plan for a wedding",
+        "What is the best recipe for pizza?",
+        "What does the code say about conflict of interest?", 
+        "What is the MTN code of Ethics about?",
+        "How do I book a flight?",
+        "What are the gift policies at MTN?",
+        "Who is the president of Ghana?",
+        "What is the capital of France?",
+        "How do I cook rice?",
+        "Help me with my personal finances"
     ]
     
     for q in queries:
-        result = query_rag(q)
+        result = query_rag(q, debug=True)  # Enable debug mode
         print(f"\n🔎 Question: {result['question']}")
         print(f"💡 Answer:\n{result['answer']}\n")
-        print("📚 Supporting Sources:")
-        for src in result["sources"][:3]:  # show first 3
-            print(f"- Page {src['page']} (Score {src['score']:.4f}): {src['text']}")
-        print("="*100)
+        if result['sources']:
+            print("📚 Supporting Sources:")
+            for src in result['sources'][:3]:
+                print(f"- Page {src['page']} (Score {src['score']:.4f}): {src['text']}")
+        print("=" * 100)

@@ -63,7 +63,6 @@ ANSWER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are AskHR, an assistant that answers questions strictly using the MTN Code of Ethics.
 
 Rules:
-- Answer to short greeting by introducing and telling them what you can help them with.
 - Answer based strictly on the provided context.
 - Cite page numbers from the context in square brackets. Example: [Page 12].
 - Keep answers clear and concise.

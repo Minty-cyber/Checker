@@ -10,59 +10,60 @@ PINECONE_API_KEY = settings.PINECONE_API_KEY
 GROQ_API_KEY = settings.GROQ_API_KEY
 INDEX_NAME = "mtn-ethics-index"
 
-# === Pinecone init ===
+
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(INDEX_NAME)
 
-# === Embeddings ===
+
 embeddings = CohereEmbeddings(
     cohere_api_key=settings.COHERE_API_KEY,
     model="embed-english-light-v3.0"
 )
 
-# === LLM ===
+
 llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant")
 
-# === Relevance Check Prompt ===
-RELEVANCE_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """You are a strict relevance checker for an HR assistant that ONLY answers questions about MTN's Code of Ethics and workplace policies.
 
-Respond with ONLY "RELEVANT" or "NOT_RELEVANT".
+# RELEVANCE_PROMPT = ChatPromptTemplate.from_messages([
+#     ("system", """You are a strict relevance checker for an HR assistant that ONLY answers questions about MTN's Code of Ethics and workplace policies.
 
-RELEVANT questions MUST be about:
-- MTN Code of Ethics specifically
-- Workplace conduct and behavior policies
-- Employee disciplinary procedures
-- Business ethics and compliance at work
-- Conflict of interest policies
-- Gift and entertainment policies in business context
-- Harassment, discrimination, or workplace violations
-- Employee rights and responsibilities at MTN
-- Company compliance and regulatory matters
+# Respond with ONLY "RELEVANT" or "NOT_RELEVANT".
 
-NOT_RELEVANT questions include:
-- Personal life events (weddings, parties, celebrations)
-- Personal advice or planning (even if mentioning gifts)
-- General knowledge or how-to questions
-- Technical support, travel, cooking, entertainment
-- Personal finance, shopping, recipes
-- Any question about personal matters outside of work
+# RELEVANT questions MUST be about:
+# - MTN Code of Ethics specifically
+# - Workplace conduct and behavior policies
+# - Employee disciplinary procedures
+# - Business ethics and compliance at work
+# - Conflict of interest policies
+# - Gift and entertainment policies in business context
+# - Harassment, discrimination, or workplace violations
+# - Employee rights and responsibilities at MTN
+# - Company compliance and regulatory matters
 
-Key rule: If the question is about personal life or personal events (like "help me prepare for a wedding"), it is NOT_RELEVANT even if it mentions business concepts like gifts.
+# NOT_RELEVANT questions include:
+# - Personal life events (weddings, parties, celebrations)
+# - Personal advice or planning (even if mentioning gifts)
+# - General knowledge or how-to questions
+# - Technical support, travel, cooking, entertainment
+# - Personal finance, shopping, recipes
+# - Any question about personal matters outside of work
 
-Examples:
-- "What gifts can I accept from clients?" → RELEVANT
-- "Help me prepare for a wedding" → NOT_RELEVANT  
-- "What are MTN's gift policies?" → RELEVANT
-- "What gifts should I give at my wedding?" → NOT_RELEVANT"""),
-    ("human", "Question: {question}")
-])
+# Key rule: If the question is about personal life or personal events (like "help me prepare for a wedding"), it is NOT_RELEVANT even if it mentions business concepts like gifts.
 
-# === Main Answer Prompt (with context) ===
+# Examples:
+# - "What gifts can I accept from clients?" → RELEVANT
+# - "Help me prepare for a wedding" → NOT_RELEVANT  
+# - "What are MTN's gift policies?" → RELEVANT
+# - "What gifts should I give at my wedding?" → NOT_RELEVANT"""),
+#     ("human", "Question: {question}")
+# ])
+
+
 ANSWER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are AskHR, an assistant that answers questions strictly using the MTN Code of Ethics.
 
 Rules:
+- Answer to short greeting by introducing and telling them what you can help them with.
 - Answer based strictly on the provided context.
 - Cite page numbers from the context in square brackets. Example: [Page 12].
 - Keep answers clear and concise.
@@ -70,19 +71,18 @@ Rules:
     ("human", "{question}\n\nContext:\n{context}")
 ])
 
-# === No Context Answer Prompt ===
-NO_CONTEXT_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """You are AskHR, an assistant for MTN employees. 
 
-When no relevant context from the MTN Code of Ethics is available for a question, respond with EXACTLY:
-"Kindly ask only questions pertaining to HR."
+# NO_CONTEXT_PROMPT = ChatPromptTemplate.from_messages([
+#     ("system", """You are AskHR, an assistant for MTN employees. 
 
-Do not provide any other response or explanation."""),
-    ("human", "{question}")
-])
+# When no relevant context from the MTN Code of Ethics is available for a question, respond with EXACTLY:
+# "Kindly ask only questions pertaining to HR."
+
+# Do not provide any other response or explanation."""),
+#     ("human", "{question}")
+# ])
 
 def detect_page(user_query: str) -> int | None:
-    """Extract page number if the query refers to a specific page."""
     page_prompt = f"""
     Extract the page number if the query refers to a specific page.
     Query: "{user_query}"
@@ -96,6 +96,16 @@ def detect_page(user_query: str) -> int | None:
         return int(content)
     except:
         return None
+    
+def detect_greeting(user_query: str) -> bool:
+    greeting_prompt = f"""
+    Determine if the following user query is a greeting (like hello, hi, good morning, hey, etc.).
+    Query: "{user_query}"
+    Respond with ONLY 'YES' if it is a greeting, or 'NO' otherwise.
+    """
+    response = llm.invoke([{"role": "user", "content": greeting_prompt}])
+    content = response.content.strip().upper()
+    return content == "YES"
 
 def retrieve_chunks(query: str, top_k: int = 8, similarity_threshold: float = 0.35, page: int | None = None):
     query_vector = embeddings.embed_query(query)
@@ -112,32 +122,36 @@ def retrieve_chunks(query: str, top_k: int = 8, similarity_threshold: float = 0.
     results = index.query(**query_params)
 
     if page is not None:
-        # For explicit page queries, return all matches (ignore threshold)
         return results["matches"]
 
-    # Otherwise, apply similarity filtering
     return [
         m for m in results["matches"]
         if m.get("score", 0) >= similarity_threshold
     ]
    
         
-def check_relevance(user_query: str, debug: bool = False) -> bool:
-    """Use LLM to check if query is HR-=related."""
-    messages = RELEVANCE_PROMPT.format_messages(question=user_query)
-    response = llm.invoke(messages)
-    relevance_result = response.content.strip().upper()
+# def check_relevance(user_query: str, debug: bool = False) -> bool:
+#     messages = RELEVANCE_PROMPT.format_messages(question=user_query)
+#     response = llm.invoke(messages)
+#     relevance_result = response.content.strip().upper()
     
-    if debug:
-        print(f"🔍 Relevance check for '{user_query}': {relevance_result}")
+#     if debug:
+#         print(f"🔍 Relevance check for '{user_query}': {relevance_result}")
     
-    return relevance_result == "RELEVANT"
+#     return relevance_result == "RELEVANT"
 
 def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.35, debug: bool = False):
     """RAG system with page detection + retrieval (no relevance prompt)."""
     
     if debug:
         print(f"🔍 Processing query: '{user_query}'")
+        
+    if detect_greeting(user_query):
+        return {
+            "question": user_query,
+            "answer": "Hello 👋 I’m AskHR, your MTN HR assistant. I can help you with the MTN Code of Ethics and compliance matters.",
+            "sources": []
+        }
     
     # 1. Detect page (optional)
     requested_page = detect_page(user_query)
@@ -201,6 +215,7 @@ def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.3
 if __name__ == "__main__":
     queries = [
         "What is on page 11?",
+        "Help me find emails in the document?",
         "Help me plan for a wedding",
         "What is the best recipe for pizza?",
         "What does the code say about conflict of interest?", 

@@ -148,7 +148,7 @@ def query_rag(user_query: str, top_k: int = 8, similarity_threshold: float = 0.3
     if detect_greeting(user_query):
         return {
             "question": user_query,
-            "answer": "Hello 👋 I’m AskHR, your MTN HR assistant. I can help you with the MTN Code of Ethics and compliance matters.",
+            "answer": "Hi, I’m AskHR, your HR virtual buddy. How can I help you?",
             "sources": []
         }
     
